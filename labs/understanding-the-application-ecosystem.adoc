@@ -1,24 +1,30 @@
 == Understanding the application ecosystem
 
 For illustrating the different features of AMQ Streams, we will use a consumer application and a producer application based on the Kafka consumer and producer API.
-The source code of the applications is available in GitHub.
+The source code of the applications is available in https://github.com/RedHat-Middleware-Workshops/workshop-amq-streams/tree/master/apps[GitHub].
 In this example we use containerized versions of the applications and we will monitor the impact.
 
 Let's connect the applications to the production cluster we just created.
 
 First, we deploy the producer that will periodically emit messages on a topic named `lines`.
 Note the `CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS` environment variable that sets the bootstrap broker(s) for the application.
-The descriptor for the application is below.
+The descriptor and the deploy command for the application is below.
 
 ----
-apiVersion: extensions/v1beta1
+cat << EOF | oc apply -f -
+apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: timer-producer
   labels:
     app: kafka-workshop
+  name: timer-producer
+  namespace: amq-streams
 spec:
   replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-workshop
+      name: timer-producer
   template:
     metadata:
       labels:
@@ -26,32 +32,31 @@ spec:
         name: timer-producer
     spec:
       containers:
-        - name: timer-producer
-          image: docker.io/mbogoevici/timer-producer:latest
-          env:
-            - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS
-              value: "production-ready-kafka-bootstrap.amq-streams.svc:9092"
+      - image: docker.io/mbogoevici/timer-producer:latest
+        name: timer-producer
+        env:
+        - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS
+          value: "production-ready-kafka-bootstrap.amq-streams.svc:9092"
+EOF
 ----
 
-Next, we deploy the application.
+We also deploy a simple application that consumes messages.
 
 ----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/applications/timer-producer.yaml
-----
-
-
-
-We also have a simple application that consumes messages.
-
-----
-apiVersion: extensions/v1beta1
+cat << EOF | oc apply -f -
+apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: log-consumer
   labels:
     app: kafka-workshop
+  name: log-consumer
+  namespace: amq-streams
 spec:
   replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-workshop
+      name: log-consumer
   template:
     metadata:
       labels:
@@ -59,49 +64,51 @@ spec:
         name: log-consumer
     spec:
       containers:
-        - name: log-consumer
-          image: docker.io/mbogoevici/log-consumer:latest
-          env:
-            - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS
-              value: "production-ready-kafka-bootstrap.amq-streams.svc:9092"
-            - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_GROUP_ID
-              value: test-group
-----
-
-Now, let's deploy the message consumer.
-
-----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/applications/log-consumer.yaml
+      - image: docker.io/mbogoevici/log-consumer:latest
+        name: log-consumer
+        env:
+        - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS
+          value: "production-ready-kafka-bootstrap.amq-streams.svc:9092"
+        - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_GROUP_ID
+          value: test-group
+EOF
 ----
 
 Make sure that everything works and all the applications are started, then we will validate that the applications communicate with each other.
+
+First, wait until the producer and consumer pods are running.
+
+----
+oc get pods -l app=kafka-workshop -n amq-streams
+
+NAME                              READY   STATUS    RESTARTS   AGE
+log-consumer-5874676f74-zdc5t     1/1     Running   0          2m21s
+timer-producer-6bf5c9b768-d2rmg   1/1     Running   0          5m59s
+----
+
+Get the name of the consumer pod.
 First, let's find the pod address for the consumer.
 
 ----
-oc get pods | grep log-consumer
+CONSUMER_POD_NAME=$(oc get pods -l app=kafka-workshop -l name=log-consumer -n amq-streams -o jsonpath='{.items[0].metadata.name}')
+
+echo $CONSUMER_POD_NAME
 ----
 
-Wait until the container is running.
-The result should be something along the lines of (notice that the pod id will be different - copy it for the next step):
+Now let's tail the logs from the consumer (use the pod name retrieved in the previous step).
 
 ----
-log-consumer-5d4586bdcd-gm9xp                       1/1       Running   0          41s
-----
-
-Now let's tail the logs from the consumer (use the pod id retrieved in the previous step).
-
-----
-oc logs -f pod/log-consumer-<pod-id>  -c log-consumer --tail=-1
+oc logs -f pod/$CONSUMER_POD_NAME  -c log-consumer --tail=-1
 ----
 
 We expect the output to look like as follows:
 
 ----
-2019-02-05 16:29:05.833  INFO 1 --- [Consumer[lines]] route1                                   : Message 209 at Tue Feb 05 16:29:05 UTC 2019
-2019-02-05 16:29:10.835  INFO 1 --- [Consumer[lines]] route1                                   : Message 210 at Tue Feb 05 16:29:10 UTC 2019
-2019-02-05 16:29:15.835  INFO 1 --- [Consumer[lines]] route1                                   : Message 211 at Tue Feb 05 16:29:15 UTC 2019
-2019-02-05 16:29:20.838  INFO 1 --- [Consumer[lines]] route1                                   : Message 212 at Tue Feb 05 16:29:20 UTC 2019
-2019-02-05 16:29:25.833  INFO 1 --- [Consumer[lines]] route1                                   : Message 213 at Tue Feb 05 16:29:25 UTC 2019
+2024-03-17 22:27:35.377  INFO 1 --- [Consumer[lines]] route1                                   : Message 125 at Sun Mar 17 22:27:35 UTC 2024
+2024-03-17 22:27:40.379  INFO 1 --- [Consumer[lines]] route1                                   : Message 126 at Sun Mar 17 22:27:40 UTC 2024
+2024-03-17 22:27:45.377  INFO 1 --- [Consumer[lines]] route1                                   : Message 127 at Sun Mar 17 22:27:45 UTC 2024
+2024-03-17 22:27:50.479  INFO 1 --- [Consumer[lines]] route1                                   : Message 128 at Sun Mar 17 22:27:50 UTC 2024
+2024-03-17 22:27:55.378  INFO 1 --- [Consumer[lines]] route1                                   : Message 129 at Sun Mar 17 22:27:55 UTC 2024
 ----
 
 Messages should continue to arrive every five seconds, and this indicates that the two applications communicate with each other.
@@ -109,6 +116,6 @@ Messages should continue to arrive every five seconds, and this indicates that t
 Now let's delete the two applications.
 
 ----
-oc delete deployment log-consumer
-oc delete deployment timer-producer
+oc delete deployment log-consumer -n amq-streams
+oc delete deployment timer-producer -n amq-streams
 ----

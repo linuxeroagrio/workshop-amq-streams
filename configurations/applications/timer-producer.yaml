@@ -1,11 +1,16 @@
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: timer-producer
   labels:
     app: kafka-workshop
+  name: timer-producer
+  namespace: amq-streams
 spec:
   replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-workshop
+      name: timer-producer
   template:
     metadata:
       labels:
@@ -13,8 +18,8 @@ spec:
         name: timer-producer
     spec:
       containers:
-        - name: timer-producer
-          image: docker.io/mbogoevici/timer-producer:latest
-          env:
-            - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS
-              value: "production-ready-kafka-bootstrap.amq-streams.svc:9092"
+      - image: docker.io/mbogoevici/timer-producer:latest
+        name: timer-producer
+        env:
+        - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS
+          value: "production-ready-kafka-bootstrap.amq-streams.svc:9092"
