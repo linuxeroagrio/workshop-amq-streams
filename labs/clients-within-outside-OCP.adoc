@@ -11,18 +11,28 @@ Let's see how that can be enabled.
 First, we need to reconfigure the cluster with an `external` listener.
 
 ----
-apiVersion: kafka.strimzi.io/v1alpha1
+cat << EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1beta2
 kind: Kafka
 metadata:
   name: production-ready
+  namespace: amq-streams
 spec:
   kafka:
     replicas: 3
     listeners:
-      plain: {}
-      tls: {}
-      external:
-        type: route
+    - name: plain
+      port: 9092
+      type: internal
+      tls: false
+    - name: tls
+      port: 9093
+      type: internal
+      tls: true
+    - name: external
+      port: 9094
+      type: route
+      tls: true
     config:
       offsets.topic.replication.factor: 3
       transaction.state.log.replication.factor: 3
@@ -40,12 +50,7 @@ spec:
   entityOperator:
     topicOperator: {}
     userOperator: {}
-----
-
-Now let's apply this configuration to the running cluster.
-
-----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/clusters/production-ready-external-routes.yaml
+EOF
 ----
 
 You can see that the Cluster Operator is starting a rolling update on the Kafka cluster, restarting each broker one by one for updating their configuration in order to expose the cluster outside of OpenShift.
@@ -53,7 +58,7 @@ Now you can inspect the existing services.
 Notice that each of the brokers in the cluster has a route and a new bootstrap service has been created for external connections.
 
 ----
-oc get routes
+oc get routes -n amq-streams
 ----
 
 === Connecting external clients
@@ -61,12 +66,14 @@ oc get routes
 For interacting with the broker, external clients must use TLS.
 First, we need to extract the certificate of the server.
 ----
-oc extract secret/production-ready-cluster-ca-cert --keys=ca.crt --to=- >certificate.crt
+oc extract -n amq-streams secret/production-ready-cluster-ca-cert --keys=ca.crt --to=- > certificate.crt
 ----
 
 Then, we need to install it into a Java keystore.
 
 ----
+sudo yum -y install java-1.8.0-openjdk-devel java-1.8.0-openjdk-headless java-1.8.0-openjdk
+
 keytool -import -trustcacerts -alias root -file certificate.crt -keystore keystore.jks -storepass password -noprompt
 ----
 
@@ -83,15 +90,19 @@ Let's launch the two applications with new configuration settings (replace <GUID
 
 ----
 java -jar log-consumer.jar \
-      --camel.component.kafka.configuration.brokers=production-ready-kafka-bootstrap-amq-streams.apps-<GUID>.generic.opentlc.com:443 \
+      --camel.component.kafka.configuration.brokers=production-ready-kafka-bootstrap-amq-streams.apps.cluster-<GUID>.dynamic.redhatworkshops.io:443 \
       --camel.component.kafka.configuration.security-protocol=SSL \
       --camel.component.kafka.configuration.ssl-truststore-location=keystore.jks \
       --camel.component.kafka.configuration.ssl-truststore-password=password
 ----
 
+Open a new terminal and run the producer application
+
 ----
+cd kafka
+
 java -jar timer-producer.jar \
-      --camel.component.kafka.configuration.brokers=production-ready-kafka-bootstrap-amq-streams.apps-<GUID>.generic.opentlc.com:443 \
+      --camel.component.kafka.configuration.brokers=production-ready-kafka-bootstrap-amq-streams.apps.cluster-<GUID>.dynamic.redhatworkshops.io:443 \
       --camel.component.kafka.configuration.security-protocol=SSL \
       --camel.component.kafka.configuration.ssl-truststore-location=keystore.jks \
       --camel.component.kafka.configuration.ssl-truststore-password=password --server.port=0
