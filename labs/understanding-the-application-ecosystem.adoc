@@ -87,7 +87,6 @@ timer-producer-6bf5c9b768-d2rmg   1/1     Running   0          5m59s
 ----
 
 Get the name of the consumer pod.
-First, let's find the pod address for the consumer.
 
 ----
 CONSUMER_POD_NAME=$(oc get pods -l app=kafka-workshop -l name=log-consumer -n amq-streams -o jsonpath='{.items[0].metadata.name}')
