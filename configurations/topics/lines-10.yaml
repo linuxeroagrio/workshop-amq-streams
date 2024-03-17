@@ -1,7 +1,8 @@
-apiVersion: kafka.strimzi.io/v1alpha1
+apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaTopic
 metadata:
   name: lines
+  namespace: amq-streams
   labels:
     strimzi.io/cluster: production-ready
 spec:
