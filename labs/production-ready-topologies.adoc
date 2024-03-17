@@ -22,16 +22,23 @@ AMQ Streams treats an Apache Kafka cluster deployment as a custom resource and c
 Let's take a quick look at the resource descriptor for the cluster we just deployed:
 
 ----
-apiVersion: kafka.strimzi.io/v1alpha1
+apiVersion: kafka.strimzi.io/v1beta2
 kind: Kafka
 metadata:
   name: simple-cluster
+  namespace: amq-streams
 spec:
   kafka:
     replicas: 1
     listeners:
-      plain: {}
-      tls: {}
+    - name: plain
+      port: 9092
+      type: internal
+      tls: false
+    - name: tls
+      port: 9093
+      type: internal
+      tls: true
     config:
       offsets.topic.replication.factor: 1
       transaction.state.log.replication.factor: 1
@@ -45,6 +52,7 @@ spec:
   entityOperator:
     topicOperator: {}
     userOperator: {}
+
 ----
 
 Let's take a look at a few of the cluster properties.
@@ -65,29 +73,37 @@ A healthy cluster must have more than one broker for HA and throughput, and must
 First let's check if the previously deployed cluster is still there.
 
 ----
-oc get kafka
+oc get -n amq-streams kafka
 ----
 
 You might get an empty result, but in case you don't, just remove the existing cluster.
 
 ----
-oc delete kafka simple-cluster
+oc delete -n amq-streams kafka simple-cluster
 ----
 
-Now let's create a new resource.
+Now let's create and deploy a new kafka cluster resource.
 The definition of the cluster is below:
 
 ----
-apiVersion: kafka.strimzi.io/v1alpha1
+cat << EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1beta2
 kind: Kafka
 metadata:
   name: production-ready
+  namespace: amq-streams
 spec:
   kafka:
     replicas: 3
     listeners:
-      plain: {}
-      tls: {}
+    - name: plain
+      port: 9092
+      type: internal
+      tls: false
+    - name: tls
+      port: 9093
+      type: internal
+      tls: true
     config:
       offsets.topic.replication.factor: 3
       transaction.state.log.replication.factor: 3
@@ -105,12 +121,7 @@ spec:
   entityOperator:
     topicOperator: {}
     userOperator: {}
-----
-
-Let's deploy this new resource.
-
-----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/clusters/production-ready.yaml
+EOF
 ----
 
 The cluster `production-ready` has the minimal settings for a highly available, persistent cluster.
@@ -124,22 +135,54 @@ The latter may be less than the number of Kafka brokers.
 Other settings control the replication factors for offsets and transaction logs.
 A minimum of two is recommended.
 
+Notice the number of pods and the corresponding persistent claims in the project
+
+----
+oc get pods,pvc -n amq-streams
+
+NAME                                                    READY   STATUS    RESTARTS   AGE
+pod/production-ready-entity-operator-5666dd8689-q4qgg   3/3     Running   0          12m
+pod/production-ready-kafka-0                            1/1     Running   0          12m
+pod/production-ready-kafka-1                            1/1     Running   0          12m
+pod/production-ready-kafka-2                            1/1     Running   0          12m
+pod/production-ready-zookeeper-0                        1/1     Running   0          13m
+pod/production-ready-zookeeper-1                        1/1     Running   0          13m
+pod/production-ready-zookeeper-2                        1/1     Running   0          13m
+pod/strimzi-cluster-operator-676c86db94-445lm           1/1     Running   0          70m
+
+NAME                                                      STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                           AGE
+persistentvolumeclaim/data-production-ready-kafka-0       Bound    pvc-77671a8c-fca1-4063-b633-3e5d83e4ffb3   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   12m
+persistentvolumeclaim/data-production-ready-kafka-1       Bound    pvc-7d6bf818-adfb-4962-8713-30a5565138bd   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   12m
+persistentvolumeclaim/data-production-ready-kafka-2       Bound    pvc-b6a5e6a4-f6f9-403c-8c98-0b713b7bc06d   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   12m
+persistentvolumeclaim/data-production-ready-zookeeper-0   Bound    pvc-9bcfbd19-1fff-4889-91fe-609cd36ff61f   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   13m
+persistentvolumeclaim/data-production-ready-zookeeper-1   Bound    pvc-5fa51ce0-0d0f-474f-acdc-1a11cf3eec65   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   13m
+persistentvolumeclaim/data-production-ready-zookeeper-2   Bound    pvc-021c9687-1c81-4080-bbaa-bb7219d51433   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   13m
+----
+
 ==== Scaling up the cluster
 
 Let us scale up the cluster.
-A corresponding resource would look like below (note that the only property that changes is `spec.kafka.replicas`).
+A corresponding resource would look like below (note that the only property that changes is `spec.kafka.replicas).
 
 ----
-apiVersion: kafka.strimzi.io/v1alpha1
+cat << EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1beta2
 kind: Kafka
 metadata:
   name: production-ready
+  namespace: amq-streams
 spec:
   kafka:
     replicas: 5
     listeners:
-      plain: {}
-      tls: {}
+    - name: plain
+      port: 9092
+      type: internal
+      tls: false
+    - name: tls
+      port: 9093
+      type: internal
+      tls: true
     config:
       offsets.topic.replication.factor: 3
       transaction.state.log.replication.factor: 3
@@ -157,36 +200,213 @@ spec:
   entityOperator:
     topicOperator: {}
     userOperator: {}
-----
-
-Notice the only change being the number of nodes.
-Let's apply this new configuration:
-
-----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/clusters/production-ready-5-nodes.yaml
+EOF
 ----
 
 Notice the number of pods of the Kafka cluster increasing to 5 and the corresponding persistent claims.
+
+----
+oc get pods,pvc -n amq-streams
+
+NAME                                                    READY   STATUS    RESTARTS   AGE
+pod/production-ready-entity-operator-5666dd8689-q4qgg   3/3     Running   0          15m
+pod/production-ready-kafka-0                            1/1     Running   0          15m
+pod/production-ready-kafka-1                            1/1     Running   0          15m
+pod/production-ready-kafka-2                            1/1     Running   0          15m
+pod/production-ready-kafka-3                            1/1     Running   0          68s
+pod/production-ready-kafka-4                            1/1     Running   0          68s
+pod/production-ready-zookeeper-0                        1/1     Running   0          17m
+pod/production-ready-zookeeper-1                        1/1     Running   0          17m
+pod/production-ready-zookeeper-2                        1/1     Running   0          17m
+pod/strimzi-cluster-operator-676c86db94-445lm           1/1     Running   0          73m
+
+NAME                                                      STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                           AGE
+persistentvolumeclaim/data-production-ready-kafka-0       Bound    pvc-77671a8c-fca1-4063-b633-3e5d83e4ffb3   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   15m
+persistentvolumeclaim/data-production-ready-kafka-1       Bound    pvc-7d6bf818-adfb-4962-8713-30a5565138bd   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   15m
+persistentvolumeclaim/data-production-ready-kafka-2       Bound    pvc-b6a5e6a4-f6f9-403c-8c98-0b713b7bc06d   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   15m
+persistentvolumeclaim/data-production-ready-kafka-3       Bound    pvc-2a1fef21-7673-4e3d-a3c3-8ab8f44008f9   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   68s
+persistentvolumeclaim/data-production-ready-kafka-4       Bound    pvc-544dd558-a06a-470b-bd4e-24a0a5b6678f   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   68s
+persistentvolumeclaim/data-production-ready-zookeeper-0   Bound    pvc-9bcfbd19-1fff-4889-91fe-609cd36ff61f   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   17m
+persistentvolumeclaim/data-production-ready-zookeeper-1   Bound    pvc-5fa51ce0-0d0f-474f-acdc-1a11cf3eec65   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   17m
+persistentvolumeclaim/data-production-ready-zookeeper-2   Bound    pvc-021c9687-1c81-4080-bbaa-bb7219d51433   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   17m
+----
+
 Now let's scale down the cluster again.
 
 ----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/clusters/production-ready.yaml
+cat << EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: production-ready
+  namespace: amq-streams
+spec:
+  kafka:
+    replicas: 3
+    listeners:
+    - name: plain
+      port: 9092
+      type: internal
+      tls: false
+    - name: tls
+      port: 9093
+      type: internal
+      tls: true
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+    storage:
+      type: persistent-claim
+      size: 3Gi
+      deleteClaim: false
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 1Gi
+      deleteClaim: false
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+EOF
 ----
 
 Notice the number of pods of the Kafka cluster decreasing back to 3.
 The persistent claims for nodes 3 and 4 are still active.
+
+----
+oc get pods,pvc -n amq-streams
+
+NAME                                                    READY   STATUS    RESTARTS   AGE
+pod/production-ready-entity-operator-5666dd8689-q4qgg   3/3     Running   0          16m
+pod/production-ready-kafka-0                            1/1     Running   0          17m
+pod/production-ready-kafka-1                            1/1     Running   0          17m
+pod/production-ready-kafka-2                            1/1     Running   0          17m
+pod/production-ready-zookeeper-0                        1/1     Running   0          18m
+pod/production-ready-zookeeper-1                        1/1     Running   0          18m
+pod/production-ready-zookeeper-2                        1/1     Running   0          18m
+pod/strimzi-cluster-operator-676c86db94-445lm           1/1     Running   0          75m
+
+NAME                                                      STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                           AGE
+persistentvolumeclaim/data-production-ready-kafka-0       Bound    pvc-77671a8c-fca1-4063-b633-3e5d83e4ffb3   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   17m
+persistentvolumeclaim/data-production-ready-kafka-1       Bound    pvc-7d6bf818-adfb-4962-8713-30a5565138bd   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   17m
+persistentvolumeclaim/data-production-ready-kafka-2       Bound    pvc-b6a5e6a4-f6f9-403c-8c98-0b713b7bc06d   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   17m
+persistentvolumeclaim/data-production-ready-kafka-3       Bound    pvc-2a1fef21-7673-4e3d-a3c3-8ab8f44008f9   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   2m41s
+persistentvolumeclaim/data-production-ready-kafka-4       Bound    pvc-544dd558-a06a-470b-bd4e-24a0a5b6678f   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   2m41s
+persistentvolumeclaim/data-production-ready-zookeeper-0   Bound    pvc-9bcfbd19-1fff-4889-91fe-609cd36ff61f   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   18m
+persistentvolumeclaim/data-production-ready-zookeeper-1   Bound    pvc-5fa51ce0-0d0f-474f-acdc-1a11cf3eec65   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   18m
+persistentvolumeclaim/data-production-ready-zookeeper-2   Bound    pvc-021c9687-1c81-4080-bbaa-bb7219d51433   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   18m
+----
+
 What does this mean?
 Let's scale up the cluster again.
 
 ----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/clusters/production-ready-5-nodes.yaml
+cat << EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: production-ready
+  namespace: amq-streams
+spec:
+  kafka:
+    replicas: 5
+    listeners:
+    - name: plain
+      port: 9092
+      type: internal
+      tls: false
+    - name: tls
+      port: 9093
+      type: internal
+      tls: true
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+    storage:
+      type: persistent-claim
+      size: 3Gi
+      deleteClaim: false
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 1Gi
+      deleteClaim: false
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+EOF
 ----
 
 Notice the number of pods increasing back to 5 and the corresponding persistent volume claims being reallocated to the existing nodes.
 This means that the newly started instances will resume from where the previous instances 3 and 4 left off.
 
+----
+oc get pods,pvc -n amq-streams
+
+NAME                                                    READY   STATUS    RESTARTS   AGE
+pod/production-ready-entity-operator-5666dd8689-q4qgg   3/3     Running   0          18m
+pod/production-ready-kafka-0                            1/1     Running   0          19m
+pod/production-ready-kafka-1                            1/1     Running   0          19m
+pod/production-ready-kafka-2                            1/1     Running   0          19m
+pod/production-ready-kafka-3                            1/1     Running   0          40s
+pod/production-ready-kafka-4                            1/1     Running   0          40s
+pod/production-ready-zookeeper-0                        1/1     Running   0          20m
+pod/production-ready-zookeeper-1                        1/1     Running   0          20m
+pod/production-ready-zookeeper-2                        1/1     Running   0          20m
+pod/strimzi-cluster-operator-676c86db94-445lm           1/1     Running   0          77m
+
+NAME                                                      STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                           AGE
+persistentvolumeclaim/data-production-ready-kafka-0       Bound    pvc-77671a8c-fca1-4063-b633-3e5d83e4ffb3   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   19m
+persistentvolumeclaim/data-production-ready-kafka-1       Bound    pvc-7d6bf818-adfb-4962-8713-30a5565138bd   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   19m
+persistentvolumeclaim/data-production-ready-kafka-2       Bound    pvc-b6a5e6a4-f6f9-403c-8c98-0b713b7bc06d   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   19m
+persistentvolumeclaim/data-production-ready-kafka-3       Bound    pvc-2a1fef21-7673-4e3d-a3c3-8ab8f44008f9   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   4m33s
+persistentvolumeclaim/data-production-ready-kafka-4       Bound    pvc-544dd558-a06a-470b-bd4e-24a0a5b6678f   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   4m33s
+persistentvolumeclaim/data-production-ready-zookeeper-0   Bound    pvc-9bcfbd19-1fff-4889-91fe-609cd36ff61f   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   20m
+persistentvolumeclaim/data-production-ready-zookeeper-1   Bound    pvc-5fa51ce0-0d0f-474f-acdc-1a11cf3eec65   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   20m
+persistentvolumeclaim/data-production-ready-zookeeper-2   Bound    pvc-021c9687-1c81-4080-bbaa-bb7219d51433   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   20m
+----
+
 Three broker nodes will be sufficient for our lab, so we can scale things down again:
 
 ----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/clusters/production-ready.yaml
+cat << EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: production-ready
+  namespace: amq-streams
+spec:
+  kafka:
+    replicas: 3
+    listeners:
+    - name: plain
+      port: 9092
+      type: internal
+      tls: false
+    - name: tls
+      port: 9093
+      type: internal
+      tls: true
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+    storage:
+      type: persistent-claim
+      size: 3Gi
+      deleteClaim: false
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 1Gi
+      deleteClaim: false
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+EOF
 ----
