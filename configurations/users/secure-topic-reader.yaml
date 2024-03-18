@@ -1,7 +1,8 @@
-apiVersion: kafka.strimzi.io/v1alpha1
+apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaUser
 metadata:
   name: secure-topic-reader
+  namespace: amq-streams
   labels:
     strimzi.io/cluster: production-ready
 spec:
@@ -15,17 +16,15 @@ spec:
           type: topic
           name: lines
           patternType: literal
-        operation: Read
+        operations:
+          - Read
+          - Describe
         host: "*"
-      - resource:
-          type: topic
-          name: lines
-          patternType: literal
-        operation: Describe
-        host: "*"
+      # Example ACL rules for producing to topic my-topic
       - resource:
           type: group
           name: secure-group
           patternType: literal
-        operation: Read
+        operations:
+          - Read
         host: "*"

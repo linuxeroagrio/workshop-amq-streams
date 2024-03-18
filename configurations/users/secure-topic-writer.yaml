@@ -1,7 +1,8 @@
-apiVersion: kafka.strimzi.io/v1alpha1
+apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaUser
 metadata:
   name: secure-topic-writer
+  namespace: amq-streams
   labels:
     strimzi.io/cluster: production-ready
 spec:
@@ -15,5 +16,6 @@ spec:
           type: topic
           name: lines
           patternType: literal
-        operation: Write
+        operations:
+          - Write
         host: "*"
