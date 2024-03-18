@@ -39,125 +39,181 @@ If you've already done so in the first lab, skip this step.
 sed -i 's/namespace: .*/namespace: amq-streams/' install/cluster-operator/*RoleBinding*.yaml
 ----
 
-Next, alter the file `install/cluster-operator/050-Deployment-strimzi-cluster-operator.yaml` to point to the monitored projects.
+Next, alter the file `install/cluster-operator/060-Deployment-strimzi-cluster-operator.yaml` to point to the monitored projects. Ensure that the projects `amq-streams` `team-1` and `team-2` are in the `STRIMZI_NAMESPACE` variable.
 
 ----
-cat > install/cluster-operator/050-Deployment-strimzi-cluster-operator.yaml <<'EOF'
-apiVersion: extensions/v1beta1
+vi install/cluster-operator/060-Deployment-strimzi-cluster-operator.yaml
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: strimzi-cluster-operator
-  labels:
-    app: strimzi
 spec:
-  replicas: 1
   template:
-    metadata:
-      labels:
-        name: strimzi-cluster-operator
     spec:
-      serviceAccountName: strimzi-cluster-operator
       containers:
-      - name: strimzi-cluster-operator
-        image: registry.access.redhat.com/amqstreams-1/amqstreams10-clusteroperator-openshift:1.0.0
-        imagePullPolicy: IfNotPresent
-        env:
-        - name: STRIMZI_NAMESPACE
-          value: amq-streams,team-1,team-2
-        - name: STRIMZI_FULL_RECONCILIATION_INTERVAL_MS
-          value: "120000"
-        - name: STRIMZI_OPERATION_TIMEOUT_MS
-          value: "300000"
-        - name: STRIMZI_DEFAULT_ZOOKEEPER_IMAGE
-          value: registry.access.redhat.com/amqstreams-1/amqstreams10-zookeeper-openshift:1.0.0
-        - name: STRIMZI_DEFAULT_KAFKA_IMAGE
-          value: registry.access.redhat.com/amqstreams-1/amqstreams10-kafka-openshift:1.0.0
-        - name: STRIMZI_DEFAULT_KAFKA_CONNECT_IMAGE
-          value: registry.access.redhat.com/amqstreams-1/amqstreams10-kafkaconnect-openshift:1.0.0
-        - name: STRIMZI_DEFAULT_KAFKA_CONNECT_S2I_IMAGE
-          value: registry.access.redhat.com/amqstreams-1/amqstreams10-kafkaconnects2i-openshift:1.0.0
-        - name: STRIMZI_DEFAULT_TOPIC_OPERATOR_IMAGE
-          value: registry.access.redhat.com/amqstreams-1/amqstreams10-topicoperator-openshift:1.0.0
-        - name: STRIMZI_DEFAULT_USER_OPERATOR_IMAGE
-          value: registry.access.redhat.com/amqstreams-1/amqstreams10-useroperator-openshift:1.0.0
-        - name: STRIMZI_DEFAULT_KAFKA_INIT_IMAGE
-          value: registry.access.redhat.com/amqstreams-1/amqstreams10-kafkainit-openshift:1.0.0
-        - name: STRIMZI_DEFAULT_TLS_SIDECAR_ZOOKEEPER_IMAGE
-          value: registry.access.redhat.com/amqstreams-1/amqstreams10-zookeeperstunnel-openshift:1.0.0
-        - name: STRIMZI_DEFAULT_TLS_SIDECAR_KAFKA_IMAGE
-          value: registry.access.redhat.com/amqstreams-1/amqstreams10-kafkastunnel-openshift:1.0.0
-        - name: STRIMZI_DEFAULT_TLS_SIDECAR_ENTITY_OPERATOR_IMAGE
-          value: registry.access.redhat.com/amqstreams-1/amqstreams10-entityoperatorstunnel-openshift:1.0.0
-        - name: STRIMZI_DEFAULT_KAFKA_MIRRORMAKER_IMAGE
-          value: registry.access.redhat.com/amqstreams-1/amqstreams10-kafkamirrormaker-openshift:1.0.0
-        - name: STRIMZI_LOG_LEVEL
-          value: INFO
-        livenessProbe:
-          httpGet:
-            path: /healthy
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 30
-        readinessProbe:
-          httpGet:
-            path: /ready
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 30
-        resources:
-          limits:
-            cpu: 1000m
-            memory: 256Mi
-          requests:
-            cpu: 200m
-            memory: 256Mi
-  strategy:
-    type: Recreate
-EOF
+        - name: strimzi-cluster-operator
+          env:
+            - name: STRIMZI_NAMESPACE
+              value: amq-streams,team-1,team-2
 ----
 
 Next, install `RoleBinding`s for each of the two monitored namespaces:
 
 ----
 oc apply -f install/cluster-operator/020-RoleBinding-strimzi-cluster-operator.yaml -n team-1
+oc apply -f install/cluster-operator/023-RoleBinding-strimzi-cluster-operator.yaml -n team-1
 oc apply -f install/cluster-operator/031-RoleBinding-strimzi-cluster-operator-entity-operator-delegation.yaml -n team-1
-oc apply -f install/cluster-operator/032-RoleBinding-strimzi-cluster-operator-topic-operator-delegation.yaml -n team-1
 ----
 
 and
 
 ----
 oc apply -f install/cluster-operator/020-RoleBinding-strimzi-cluster-operator.yaml -n team-2
+oc apply -f install/cluster-operator/023-RoleBinding-strimzi-cluster-operator.yaml -n team-2
 oc apply -f install/cluster-operator/031-RoleBinding-strimzi-cluster-operator-entity-operator-delegation.yaml -n team-2
-oc apply -f install/cluster-operator/032-RoleBinding-strimzi-cluster-operator-topic-operator-delegation.yaml -n team-2
 ----
 
 Finally, install - or re-install and reconfigure the `cluster-operator`.
 
 ----
-oc apply -f install/cluster-operator
+oc apply -f install/cluster-operator -n amq-streams
 ----
 
 Now we can deploy clusters, topics and users in each of these namespaces.
-Use the console to monitor the result.
 
 Let's deploy
 ----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/clusters/production-ready.yaml -n team-1
+cat << EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: production-ready
+  namespace: team-1
+spec:
+  kafka:
+    replicas: 3
+    listeners:
+    - name: plain
+      port: 9092
+      type: internal
+      tls: false
+    - name: tls
+      port: 9093
+      type: internal
+      tls: true
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+    storage:
+      type: persistent-claim
+      size: 3Gi
+      deleteClaim: false
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 1Gi
+      deleteClaim: false
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+EOF
 ----
 
-From the OpenShift console, navigate to the `team-1` project and notice the new cluster, as well as service.
+Observe the pods and pvc in the team-1 namespace
+
+----
+oc get pods,pvc -n team-1
+
+NAME                                                    READY   STATUS    RESTARTS   AGE
+pod/production-ready-entity-operator-6667995c9c-lvqkk   3/3     Running   0          48s
+pod/production-ready-kafka-0                            1/1     Running   0          78s
+pod/production-ready-kafka-1                            1/1     Running   0          78s
+pod/production-ready-kafka-2                            1/1     Running   0          78s
+pod/production-ready-zookeeper-0                        1/1     Running   0          105s
+pod/production-ready-zookeeper-1                        1/1     Running   0          105s
+pod/production-ready-zookeeper-2                        1/1     Running   0          105s
+
+NAME                                                      STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                           AGE
+persistentvolumeclaim/data-production-ready-kafka-0       Bound    pvc-426c58d1-33a1-4728-b612-07f8494f9ddb   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   79s
+persistentvolumeclaim/data-production-ready-kafka-1       Bound    pvc-9ce96bd4-c3c3-4e9b-baa2-e416834f32d2   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   79s
+persistentvolumeclaim/data-production-ready-kafka-2       Bound    pvc-881f1330-2cba-4fc8-ac35-a0eb8a873c6c   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   79s
+persistentvolumeclaim/data-production-ready-zookeeper-0   Bound    pvc-79738a3d-2559-4f3c-9970-cf64df5ced78   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   106s
+persistentvolumeclaim/data-production-ready-zookeeper-1   Bound    pvc-eaa5d5a9-4c9f-40c1-8df8-6731f0977b57   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   106s
+persistentvolumeclaim/data-production-ready-zookeeper-2   Bound    pvc-161ac47c-8c6c-4859-b68f-6c18a34b8a28   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   106s
+----
 
 Let's see that the cluster works.
 
 Reconfigure the `timer-producer` and `log-consumer` applications to use the new cluster.
 
 ----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/applications/log-consumer-team-1.yaml
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/applications/timer-producer-team-1.yaml
+cat << EOF | oc replace -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: kafka-workshop
+  name: timer-producer
+  namespace: amq-streams
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-workshop
+      name: timer-producer
+  template:
+    metadata:
+      labels:
+        app: kafka-workshop
+        name: timer-producer
+    spec:
+      containers:
+      - image: docker.io/mbogoevici/timer-producer:latest
+        name: timer-producer
+        env:
+        - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS
+          value: "production-ready-kafka-bootstrap.team-1.svc:9092"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: kafka-workshop
+  name: log-consumer
+  namespace: amq-streams
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-workshop
+      name: log-consumer
+  template:
+    metadata:
+      labels:
+        app: kafka-workshop
+        name: log-consumer
+    spec:
+      containers:
+      - image: docker.io/mbogoevici/log-consumer:latest
+        name: log-consumer
+        env:
+        - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS
+          value: "production-ready-kafka-bootstrap.team-1.svc:9092"
+EOF
 ----
 
 Once the applications have restarted, navigate to the logs and you should see the messages flowing again.
+
+----
+oc get pods -l app=kafka-workshop -n amq-streams
+
+CONSUMER_POD_NAME=$(oc get pods -l app=kafka-workshop -l name=log-consumer -n amq-streams -o jsonpath='{.items[0].metadata.name}')
+
+oc logs -f pod/$CONSUMER_POD_NAME  -c log-consumer --tail=-1
+----
+
 The applications deployed in the `amq-streams` namespace will interact with a Kafka cluster configured in the `team-1` namespace.
 
 === Strimzi Administrators
@@ -170,30 +226,16 @@ AMQ Streams allows the assignment of administrative permissions to regular user 
 OpenShift allows different strategies for creating users.
 In this lab we will create simple users authenticated against the OpenShift configuration files.
 
-First, let's create the users:
+First, let's add `dev-team-1` and `dev-team-2` users:
 ----
-oc create user dev-team-1
-oc create user dev-team-2
-----
+oc extract secret/htpasswd -n openshift-config --confirm --to=.
 
-Now we need to assign identities.
-We need to log in directly into the master machine.
+htpasswd -bB htpasswd dev-team-1 openshift
+htpasswd -bB htpasswd dev-team-2 openshift
 
-----
-ssh master00.example.com
-----
+oc set data secret/htpasswd --from-file=htpasswd=htpasswd -n openshift-config
 
-Change user to `root`.
-----
-sudo -i
-----
-
-Now let's update the password file for the newly created users.
-Use a password that you can remember for each user.
-
-----
-htpasswd /etc/origin/master/htpasswd dev-team-1
-htpasswd /etc/origin/master/htpasswd dev-team-2
+watch oc get pods -n openshift-authentication
 ----
 
 Assign the two users to the previously created projects:
@@ -203,18 +245,56 @@ oc adm policy add-role-to-user admin dev-team-1 -n team-1
 oc adm policy add-role-to-user admin dev-team-2 -n team-2
 ----
 
-Exit the `root` account and the remote shell into the `master00` machine.
+[NOTE]
+Ignore the warning related to the existing of the users. The users will be created when they do login.
 
 Log into one of the users and change current project:
 
 ----
-oc login -u dev-team-2 master00.example.com
+APISERVER_URL=$(oc whoami --show-server)
+
+oc login -u dev-team-2 -p openshift --server ${APISERVER_URL} --insecure-skip-tls-verify=true
 ----
 
 Change the cluster configuration:
 
 ----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/clusters/production-ready.yaml
+cat << EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: production-ready
+  namespace: team-2
+spec:
+  kafka:
+    replicas: 3
+    listeners:
+    - name: plain
+      port: 9092
+      type: internal
+      tls: false
+    - name: tls
+      port: 9093
+      type: internal
+      tls: true
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+    storage:
+      type: persistent-claim
+      size: 3Gi
+      deleteClaim: false
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 1Gi
+      deleteClaim: false
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+EOF
 ----
 
 You should see the operation failing with an error along the lines of `Error from server (Forbidden):`.
@@ -224,21 +304,80 @@ To correct that, we will first create a `StrimziAdmin` cluster role that we can 
 Log in as `admin` and apply the roles.
 
 ----
-oc login -u admin master00.example.com
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/users/strimzi-admin.yaml
+oc login -u system:admin
+oc create -f install/strimzi-admin
 ----
 
 Assign the cluster role to the newly created users.
 
 ----
-oc adm policy add-cluster-role-to-user strimzi-admin dev-team-1 dev-team-2
+oc create clusterrolebinding strimzi-admin --clusterrole=strimzi-admin --user=dev-team-1 --user=dev-team-2
 ----
 
 Now log in again try to repeat the operation.
 
 ----
-oc login -u dev-team-2 master00.example.com
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/clusters/production-ready.yaml
+APISERVER_URL=$(oc whoami --show-server)
+
+oc login -u dev-team-2 -p openshift --server ${APISERVER_URL} --insecure-skip-tls-verify=true
+
+cat << EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: production-ready
+  namespace: team-2
+spec:
+  kafka:
+    replicas: 3
+    listeners:
+    - name: plain
+      port: 9092
+      type: internal
+      tls: false
+    - name: tls
+      port: 9093
+      type: internal
+      tls: true
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+    storage:
+      type: persistent-claim
+      size: 3Gi
+      deleteClaim: false
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 1Gi
+      deleteClaim: false
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+EOF
 ----
 
 You should see the new cluster being created.
+
+----
+oc get pods,pvc -n team-2
+
+NAME                                                    READY   STATUS    RESTARTS   AGE
+pod/production-ready-entity-operator-54fcc46958-rbzh9   3/3     Running   0          44s
+pod/production-ready-kafka-0                            1/1     Running   0          74s
+pod/production-ready-kafka-1                            1/1     Running   0          74s
+pod/production-ready-kafka-2                            1/1     Running   0          74s
+pod/production-ready-zookeeper-0                        1/1     Running   0          103s
+pod/production-ready-zookeeper-1                        1/1     Running   0          103s
+pod/production-ready-zookeeper-2                        1/1     Running   0          103s
+
+NAME                                                      STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS                           AGE
+persistentvolumeclaim/data-production-ready-kafka-0       Bound    pvc-1032ed29-3713-4686-ade2-be05de15482f   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   74s
+persistentvolumeclaim/data-production-ready-kafka-1       Bound    pvc-dcb72598-873a-4285-8763-3dda0f1ba463   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   74s
+persistentvolumeclaim/data-production-ready-kafka-2       Bound    pvc-c8b3e657-4308-4982-a8ea-c72d1ad32e7f   3Gi        RWO            ocs-external-storagecluster-ceph-rbd   74s
+persistentvolumeclaim/data-production-ready-zookeeper-0   Bound    pvc-05efacb5-12dd-4cc7-bf16-d3866339cd32   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   103s
+persistentvolumeclaim/data-production-ready-zookeeper-1   Bound    pvc-5785897b-93b2-4b94-95cf-a53e1d064051   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   103s
+persistentvolumeclaim/data-production-ready-zookeeper-2   Bound    pvc-b6700dd8-b092-4b04-970b-fcfca3e63e43   1Gi        RWO            ocs-external-storagecluster-ceph-rbd   103s
+----

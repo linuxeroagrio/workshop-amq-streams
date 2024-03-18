@@ -30,7 +30,7 @@ Now we can start the lab.
 
 Log in as the administrator with the password supplied by the instructor.
 
-    oc login -u admin https://api.cluster-<GUID>.dynamic.redhatworkshops.io:6443
+    oc login -u system:admin
 
 Create a project named `amq-streams`.
 
