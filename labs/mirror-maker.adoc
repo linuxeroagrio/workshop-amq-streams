@@ -10,10 +10,10 @@ In this lab we will show how data can be replicated between Kafka clusters using
 
 First, we will change the `log-consumer` app.
 
-Let's log back as `admin`.
+Let's log back as `system:admin`.
 
 ----
-oc login -u admin
+oc login -u system:admin
 ----
 
 ----
@@ -21,46 +21,150 @@ oc project amq-streams
 ----
 
 ----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/applications/timer-producer-team-1.yaml
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/applications/log-consumer-team-2.yaml
+cat << EOF | oc replace -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: kafka-workshop
+  name: timer-producer
+  namespace: amq-streams
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-workshop
+      name: timer-producer
+  template:
+    metadata:
+      labels:
+        app: kafka-workshop
+        name: timer-producer
+    spec:
+      containers:
+      - image: docker.io/mbogoevici/timer-producer:latest
+        name: timer-producer
+        env:
+        - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS
+          value: "production-ready-kafka-bootstrap.team-1.svc:9092"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: kafka-workshop
+  name: log-consumer
+  namespace: amq-streams
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-workshop
+      name: log-consumer
+  template:
+    metadata:
+      labels:
+        app: kafka-workshop
+        name: log-consumer
+    spec:
+      containers:
+      - image: docker.io/mbogoevici/log-consumer:latest
+        name: log-consumer
+        env:
+        - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS
+          value: "production-ready-kafka-bootstrap.team-2.svc:9092"
+EOF
 ----
 
 Now the `log-consumer` application consumes data from cluster `team-2`, while `timer-producer` sends data to cluster `team-1`.
 If we look at `log-consumer`s output, we will see that no data is received.
 
+----
+CONSUMER_POD_NAME=$(oc get pods -l app=kafka-workshop -l name=log-consumer -n amq-streams -o jsonpath='{.items[0].metadata.name}')
+
+oc logs -f pod/$CONSUMER_POD_NAME  -c log-consumer --tail=-1 -n amq-streams
+----
+
 We can confirm that pointing the application to the cluster `team-1` will yield data.
 ----
 oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/applications/log-consumer-team-1.yaml
+cat << EOF | oc replace -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: kafka-workshop
+  name: log-consumer
+  namespace: amq-streams
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-workshop
+      name: log-consumer
+  template:
+    metadata:
+      labels:
+        app: kafka-workshop
+        name: log-consumer
+    spec:
+      containers:
+      - image: docker.io/mbogoevici/log-consumer:latest
+        name: log-consumer
+        env:
+        - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS
+          value: "production-ready-kafka-bootstrap.team-1.svc:9092"
+EOF
+
+CONSUMER_POD_NAME=$(oc get pods -l app=kafka-workshop -l name=log-consumer -n amq-streams -o jsonpath='{.items[0].metadata.name}')
+
+oc logs -f pod/$CONSUMER_POD_NAME  -c log-consumer --tail=-1 -n amq-streams
 ----
 
 === Setting up the source and target clusters
 
 We will use the clusters previously created in this workshop in the `team-1` and `team-2` namespaces as source and target clusters.
 
-Make sure that you're still logged in as `admin`.
+Make sure that you're still logged in as `system:admin`.
 
 ----
-oc login -u admin
+oc login -u system:admin
 oc project amq-streams
 ----
 
 Now let's deploy MirrorMaker.
 
 ----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/clusters/mirror-maker.yaml
+cat << EOF | oc apply -f -
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaMirrorMaker
+metadata:
+  name: mirror-maker
+  namespace: amq-streams
+spec:
+  version: 3.6.0
+  replicas: 1
+  consumer:
+    bootstrapServers: production-ready-kafka-bootstrap.team-1.svc:9092 # Source cluster
+    groupId: mirror-maker-group-id
+  producer:
+    bootstrapServers: production-ready-kafka-bootstrap.team-2.svc:9092 # Target cluster
+  include: "lines|test-topic"
+EOF
 ----
 
 The notions of producer and consumer are from MirrorMaker's perspective.
 Messages will be read by the consumer (in MirrorMaker config) from the source cluster and published by the publisher (in MirrorMaker config) to the target cluster.
 
-
-Go to the Openshift web console.
-Select the `team-2` project.
-Navigate to *Applications*->*Pods* and pick production-ready-kafka-0.
-Run the following command.
+Validate the replication of the topic `lines`
 
 ----
-./bin/kafka-topics.sh --list --zookeeper localhost:2181
+oc exec -n team-2 production-ready-kafka-0 -- bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+
+__consumer_offsets
+__strimzi-topic-operator-kstreams-topic-store-changelog
+__strimzi_store_topic
+lines
 ----
 
 This will confirm that the replicated topic `lines` was created automatically.
@@ -68,7 +172,39 @@ This will confirm that the replicated topic `lines` was created automatically.
 Now let's deploy `log-consumer` against the cluster in `team-2`:
 
 ----
-oc apply -f https://raw.githubusercontent.com/RedHatWorkshops/workshop-amq-streams/master/configurations/applications/log-consumer-team-2.yaml
+cat << EOF | oc replace -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: kafka-workshop
+  name: log-consumer
+  namespace: amq-streams
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-workshop
+      name: log-consumer
+  template:
+    metadata:
+      labels:
+        app: kafka-workshop
+        name: log-consumer
+    spec:
+      containers:
+      - image: docker.io/mbogoevici/log-consumer:latest
+        name: log-consumer
+        env:
+        - name: CAMEL_COMPONENT_KAFKA_CONFIGURATION_BROKERS
+          value: "production-ready-kafka-bootstrap.team-2.svc:9092"
+EOF
 ----
 
 Logging the pod again should yield the expected results and data flows between systems.
+
+----
+CONSUMER_POD_NAME=$(oc get pods -l app=kafka-workshop -l name=log-consumer -n amq-streams -o jsonpath='{.items[0].metadata.name}')
+
+oc logs -f pod/$CONSUMER_POD_NAME  -c log-consumer --tail=-1 -n amq-streams
+----
