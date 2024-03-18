@@ -1,13 +1,23 @@
-apiVersion: kafka.strimzi.io/v1alpha1
+apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaConnect
 metadata:
   name: connect-cluster
+  namespace: amq-streams
+  annotations:
+    strimzi.io/use-connector-resources: "true"
 spec:
+  image: quay.io/linuxeroagrio/custom-kafka-connect:latest
   replicas: 1
-  bootstrapServers: production-ready-kafka-bootstrap.amq-streams.svc:9092
-  authentication:
-    type: scram-sha-512
-    username: secure-topic-reader
-    passwordSecret:
-      secretName: secure-topic-reader
-      password: password
+  bootstrapServers: production-ready-kafka-bootstrap.amq-streams.svc:9093
+  tls:
+    trustedCertificates:
+    - secretName: production-ready-cluster-ca-cert
+      certificate: ca.crt
+  config:
+    group.id: connect-cluster
+    offset.storage.topic: connect-cluster-offsets
+    config.storage.topic: connect-cluster-configs
+    status.storage.topic: connect-cluster-status
+    config.storage.replication.factor: -1
+    offset.storage.replication.factor: -1
+    status.storage.replication.factor: -1
