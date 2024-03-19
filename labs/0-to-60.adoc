@@ -4,15 +4,19 @@ In this module you will learn how to install AMQ Streams on OpenShift.
 
 === AMQ Streams installation files
 
-All the components necessary for installing AMQ Streams have been downloaded and extracted locally.
-Once you log into the workstation machine, you should find a directory named `kafka`.
-Let's navigate to the folder.
+Login in the workstation machine and Download all the components necessary for installing AMQ Streams
 
 ----
+cd
+
+wget https://github.com/linuxeroagrio/workshop-amq-streams/raw/bpd/bin/kafka.tar.gz
+
+tar xfz kafka.tar.gz
+
 cd kafka
 ----
 
-This directory contains three items:
+The `kafka` directory contains three items:
 
 * the unextracted zip file named `install_and_examples.zip`
 * the contents of the zip file, as two folders: `install` and `examples`
